@@ -1,0 +1,72 @@
+task_id: replace-with-a-short-task-name
+title: 请填写本次中文题目
+research_question: 请用一句或几句话写清本次综述需要回答的核心问题。
+keywords:
+  - first English concept
+  - second English concept
+include_terms: []
+exclude_terms: []
+languages: [en]
+year_from: 2000
+year_to: 2026
+user_requirements: 普通中文叙述性文献综述，正文约8000字，兼顾经典、最新和相反证据。
+writing_requirements_file: null
+
+search:
+  sources: [crossref, semantic_scholar, europe_pmc]
+  max_queries_per_source: 8
+  max_candidates: 10000
+  max_per_query_per_source: 500
+  screening_pool: 1000
+  target_fulltexts: 80
+  minimum_independent_sources: 3
+  saturation_rounds: 2
+  saturation_new_relevant_ratio: 0.02
+  citation_seed_count: 0
+  max_citation_expansion: 0
+  include_preprints: true
+  open_access_fulltext_only: true
+
+output:
+  language: zh-CN
+  target_chinese_characters: 8000
+  review_type: narrative
+  reference_style: GB/T 7714-2025-numeric-bilingual
+  formats: [md, docx, pdf]
+
+budget:
+  task_reservation_cny: 35
+  monthly_warning_cny: 90
+  monthly_hard_stop_cny: 99
+  external_monthly_cap_cny: 100
+  single_request_cap_cny: 5
+  deepseek_task_cap_cny: 15
+  kimi_task_cap_cny: 20
+  other_provider_task_cap_cny: 15
+  monthly_per_model_cap_cny: 99
+
+models:
+  enabled: true
+  cheap_model: deepseek-v4-flash
+  primary_model: kimi-k2.6
+  perspective_model: kimi-k2.6
+  reviewer_model: kimi-k2.6
+  allow_same_model_quality_checks: true
+  allow_second_model_review: true
+  max_revision_rounds: 1
+  temperature: 0.2
+
+quality:
+  minimum_retained_records: 30
+  minimum_evidence_papers: 15
+  minimum_fulltext_verified_papers: 5
+  minimum_cited_papers: 12
+
+compliance:
+  privacy_class: A
+  rights_confirmed: true
+  contains_personal_or_sensitive_data: false
+  contains_confidential_or_secret_data: false
+  ai_policy_path: null
+  ai_body_generation_allowed: true
+  ai_disclosure_required: null

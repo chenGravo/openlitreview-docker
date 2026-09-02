@@ -1,0 +1,10 @@
+.DS_Store
+*.log
+__pycache__/
+.venv/
+runs/*
+!runs/.gitkeep
+benchmark-runs/
+state/*.sqlite-shm
+state/*.sqlite-wal
+tasks/.generated/

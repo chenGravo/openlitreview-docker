@@ -1,0 +1,246 @@
+name: 手机入口：一键生成文献综述
+run-name: 综述｜${{ inputs.title != '' && inputs.title || inputs.task_file }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_mode:
+        description: 普通使用请选择“填写表单”；只有已经准备好任务文件时才选择“任务文件”
+        required: true
+        default: simple_form
+        type: choice
+        options:
+          - simple_form
+          - task_file
+      title:
+        description: 综述题目（填写表单时必填，可以用中文）
+        required: false
+        type: string
+      research_question:
+        description: 希望这篇综述重点回答什么问题（填写表单时必填）
+        required: false
+        type: string
+      keywords:
+        description: 关键词，用逗号或分号分隔；可以填写中文，知道英文时也可同时填写
+        required: false
+        type: string
+      year_from:
+        description: 文献起始年份
+        required: true
+        default: "2000"
+        type: string
+      year_to:
+        description: 文献截止年份
+        required: true
+        default: "2026"
+        type: string
+      target_characters:
+        description: 中文正文目标字数
+        required: true
+        default: "8000"
+        type: choice
+        options:
+          - "4000"
+          - "6000"
+          - "8000"
+          - "10000"
+          - "12000"
+      additional_requirements:
+        description: 其他写作要求；没有可以留空
+        required: false
+        type: string
+      task_file:
+        description: 仅“任务文件”模式使用；必须位于私人仓库 tasks/ 目录
+        required: false
+        default: tasks/task.example.yml
+        type: string
+      confirmed:
+        description: 已确认材料合规，并同意每篇 Kimi 最多20元、DeepSeek最多15元的费用保护
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: openlitreview-monthly-budget
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: ${{ inputs.confirmed }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: 读取私人工作区
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: workspace
+          fetch-depth: 1
+
+      - name: 读取固定版本的公开引擎
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.OPENLITREVIEW_ENGINE_REPOSITORY }}
+          ref: ${{ vars.OPENLITREVIEW_ENGINE_REF }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: 配置 Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: engine/requirements.lock
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: 安装开源引擎与文档工具
+        run: |
+          python -m pip install --disable-pip-version-check -r engine/requirements.lock
+          python -m pip install --disable-pip-version-check --no-deps ./engine
+          corepack pnpm@11.19.0 --dir engine/node install --frozen-lockfile --prod
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends pandoc libreoffice-writer fonts-noto-cjk
+
+      - name: 检查任务文件范围
+        id: task
+        working-directory: workspace
+        env:
+          INPUT_MODE: ${{ inputs.input_mode }}
+          TASK_FILE: ${{ inputs.task_file }}
+          REVIEW_TITLE: ${{ inputs.title }}
+          RESEARCH_QUESTION: ${{ inputs.research_question }}
+          REVIEW_KEYWORDS: ${{ inputs.keywords }}
+          YEAR_FROM: ${{ inputs.year_from }}
+          YEAR_TO: ${{ inputs.year_to }}
+          TARGET_CHARACTERS: ${{ inputs.target_characters }}
+          ADDITIONAL_REQUIREMENTS: ${{ inputs.additional_requirements }}
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_MODE" = "simple_form" ]; then
+            test -n "$REVIEW_TITLE"
+            test -n "$RESEARCH_QUESTION"
+            mkdir -p tasks/.generated
+            TASK_FILE="tasks/.generated/review-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+            openlitreview quick-task \
+              --title "$REVIEW_TITLE" \
+              --question "$RESEARCH_QUESTION" \
+              --keywords "$REVIEW_KEYWORDS" \
+              --year-from "$YEAR_FROM" \
+              --year-to "$YEAR_TO" \
+              --characters "$TARGET_CHARACTERS" \
+              --requirements "$ADDITIONAL_REQUIREMENTS" \
+              --output "$TASK_FILE"
+          fi
+          TASK_ROOT=$(realpath tasks)
+          TASK_REAL=$(realpath -- "$TASK_FILE")
+          case "$TASK_REAL" in
+            "$TASK_ROOT"/*.yml|"$TASK_ROOT"/*.yaml|"$TASK_ROOT"/*.json) ;;
+            *) echo "任务文件必须位于 tasks/ 下" >&2; exit 2 ;;
+          esac
+          test -f "$TASK_REAL"
+          openlitreview validate "$TASK_REAL"
+          echo "path=$TASK_REAL" >> "$GITHUB_OUTPUT"
+
+      - name: 付费调用前检查 Kimi 可用状态
+        env:
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from decimal import Decimal
+
+          key = os.environ.get("KIMI_API_KEY", "").strip()
+          if not key:
+              raise SystemExit("Kimi API Key 未配置")
+          request = urllib.request.Request(
+              "https://api.moonshot.cn/v1/users/me/balance",
+              headers={"Authorization": f"Bearer {key}"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  payload = json.load(response)
+          except urllib.error.HTTPError as exc:
+              raise SystemExit(f"Kimi 余额预检失败：HTTP {exc.code}") from None
+          data = payload.get("data") if isinstance(payload, dict) else None
+          if not isinstance(data, dict):
+              raise SystemExit("Kimi 余额接口未返回预期数据")
+          available = Decimal(str(data.get("available_balance", "0")))
+          if available <= 0:
+              raise SystemExit("Kimi 当前不可调用，请充值或检查项目预算后重试")
+          print("Kimi 余额预检通过")
+          PY
+
+      - name: 模型调用前预留整项任务预算
+        working-directory: workspace
+        env:
+          TASK_FILE: ${{ steps.task.outputs.path }}
+        run: |
+          openlitreview budget-reserve "$TASK_FILE" --ledger state/budget.sqlite
+          git config user.name "openlitreview-bot"
+          git config user.email "openlitreview-bot@users.noreply.github.com"
+          git add state/budget.sqlite
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: reserve review budget for run $GITHUB_RUN_ID"
+            git push
+          fi
+
+      - name: 执行综述任务
+        id: review
+        working-directory: workspace
+        env:
+          TASK_FILE: ${{ steps.task.outputs.path }}
+          RUN_OUTPUT: runs/${{ github.run_id }}-${{ github.run_attempt }}
+          ARK_DEEPSEEK_API_KEY: ${{ secrets.ARK_DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ARK_DEEPSEEK_MODEL_ID: ${{ vars.ARK_DEEPSEEK_MODEL_ID }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          OPENLITREVIEW_CITEPROC_RENDERER: ${{ github.workspace }}/engine/node/render-citations.cjs
+        run: |
+          openlitreview run "$TASK_FILE" --output "$RUN_OUTPUT" --ledger state/budget.sqlite --confirmed
+
+      - name: 保存实际用量账本
+        if: ${{ always() }}
+        working-directory: workspace
+        run: |
+          git config user.name "openlitreview-bot"
+          git config user.email "openlitreview-bot@users.noreply.github.com"
+          git add state/budget.sqlite
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: reconcile review budget for run $GITHUB_RUN_ID"
+            git push
+          fi
+
+      - name: 上传干净稿件包
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: manuscript-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/submission/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: 上传私人审计包
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: private-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/task_contract.json
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/search/
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/evidence/
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/draft/outline.json
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/draft/review.json
+            workspace/runs/${{ github.run_id }}-${{ github.run_attempt }}/audit/
+          if-no-files-found: warn
+          retention-days: 7

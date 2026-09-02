@@ -1,0 +1,6 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="132" fill="#0d6b55"/>
+  <path d="M372 80c-55 9-91 31-116 67-25-36-61-58-116-67-17-3-32 10-32 28v262c0 14 10 26 24 29 54 10 91 30 124 63 33-33 70-53 124-63 14-3 24-15 24-29V108c0-18-15-31-32-28Z" fill="#fffef9" opacity=".95"/>
+  <path d="M256 147v315" stroke="#b98633" stroke-width="14"/>
+  <text x="256" y="326" text-anchor="middle" font-size="164" font-weight="700" font-family="STSong, Songti SC, serif" fill="#0d6b55">文</text>
+</svg>

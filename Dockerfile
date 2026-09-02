@@ -1,0 +1,22 @@
+FROM node:22.22.0-bookworm-slim AS dependencies
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM dependencies AS builder
+COPY . .
+RUN pnpm build
+
+FROM node:22.22.0-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+CMD ["pnpm", "start", "--hostname", "0.0.0.0", "--port", "3000"]
