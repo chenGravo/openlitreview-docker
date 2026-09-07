@@ -105,7 +105,8 @@ async function getRun(runId: number) {
   );
   if (!response.ok) throw githubError(response.status);
   const run = (await response.json()) as WorkflowRun;
-  if (!run.path.startsWith(`.github/workflows/${config.workflow}@`)) {
+  const expectedPath = `.github/workflows/${config.workflow}`;
+  if (run.path !== expectedPath && !run.path.startsWith(`${expectedPath}@`)) {
     throw new Error('Unexpected workflow');
   }
   const artifacts = run.status === 'completed' ? await getArtifacts(runId) : [];
