@@ -152,6 +152,7 @@ jobs:
       - name: 付费调用前检查 Kimi 可用状态
         env:
           KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          TASK_FILE: ${{ steps.task.outputs.path }}
         run: |
           python - <<'PY'
           import json
@@ -159,6 +160,8 @@ jobs:
           import urllib.error
           import urllib.request
           from decimal import Decimal
+
+          from openlitreview.config import load_task
 
           key = os.environ.get("KIMI_API_KEY", "").strip()
           if not key:
@@ -176,9 +179,14 @@ jobs:
           if not isinstance(data, dict):
               raise SystemExit("Kimi 余额接口未返回预期数据")
           available = Decimal(str(data.get("available_balance", "0")))
-          if available <= 0:
-              raise SystemExit("Kimi 当前不可调用，请充值或检查项目预算后重试")
-          print("Kimi 余额预检通过")
+          task = load_task(os.environ["TASK_FILE"])
+          required = Decimal(str(task.budget.kimi_task_cap_cny))
+          if available < required:
+              raise SystemExit(
+                  f"Kimi API 可用余额不足以覆盖本篇 {required} 元安全上限；"
+                  "请在 Kimi 开放平台充值后重试"
+              )
+          print(f"Kimi 余额预检通过：可覆盖本篇 {required} 元安全上限")
           PY
 
       - name: 模型调用前预留整项任务预算
